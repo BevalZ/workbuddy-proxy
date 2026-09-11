@@ -305,6 +305,7 @@ func wbRegistration() registration {
 			Version:          "0.1.0",
 			Author:           "lovingfish (clean-room rebuild; original workbuddy by Sliverkiss); maintained by BevalZ",
 			GitHubRepository: "https://github.com/BevalZ/workbuddy-proxy",
+			Logo:             "data:image/png;base64," + workbuddyIntLogoData,
 		},
 		Capabilities: registrationCapability{
 			ModelProvider:         true,
