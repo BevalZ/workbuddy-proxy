@@ -1103,9 +1103,18 @@ func cleanChunkJSON(s string) string {
 				continue
 			}
 			if delta, ok := choice["delta"].(map[string]any); ok {
-				for k, v := range delta {
-					if isEmptyValue(v) {
-						delete(delta, k)
+				// Strip empty top-level delta fields (content:"", role:"", ...)
+				// to keep chunks compact. Never strip inside tool_calls: the
+				// upstream streams tool calls as deltas where the first chunk
+				// carries id/name with empty arguments and later chunks append
+				// argument fragments. Deleting those empty fields corrupts the
+				// stream and breaks tool calling in clients (e.g. Claude Code
+				// via the Anthropic translation path).
+				if _, hasTools := delta["tool_calls"]; !hasTools {
+					for k, v := range delta {
+						if isEmptyValue(v) {
+							delete(delta, k)
+						}
 					}
 				}
 			}
@@ -1251,6 +1260,7 @@ func aggregateCompletion(r io.Reader, model string) ([]byte, error) {
 	var created int64
 	var usage map[string]any
 	var toolCalls []map[string]any
+	var toolCallIndex = map[int]map[string]any{}
 
 	scanner := bufio.NewScanner(r)
 	scanner.Buffer(make([]byte, 64*1024), 4*1024*1024)
@@ -1290,8 +1300,54 @@ func aggregateCompletion(r io.Reader, model string) ([]byte, error) {
 				}
 				if tcs, ok := delta["tool_calls"].([]any); ok {
 					for _, tc := range tcs {
-						if call, ok := tc.(map[string]any); ok {
-							toolCalls = append(toolCalls, call)
+						call, ok := tc.(map[string]any)
+						if !ok {
+							continue
+						}
+						// The upstream streams tool calls as fragments: the
+						// first chunk carries id/type/name (with empty
+						// arguments), later chunks append argument fragments
+						// for the same index. Merge by index so the aggregated
+						// completion carries complete tool calls.
+						idx := 0
+						if f, ok := call["index"].(float64); ok {
+							idx = int(f)
+						}
+						merged, exists := toolCallIndex[idx]
+						if !exists {
+							merged = map[string]any{"index": idx}
+							toolCallIndex[idx] = merged
+							toolCalls = append(toolCalls, merged)
+						}
+						for k, v := range call {
+							if k == "index" {
+								continue
+							}
+							if k == "function" {
+								nf, _ := v.(map[string]any)
+								mf, _ := merged["function"].(map[string]any)
+								if mf == nil {
+									mf = map[string]any{}
+									merged["function"] = mf
+								}
+								for fk, fv := range nf {
+									if fk == "arguments" {
+										// Append fragment across chunks.
+										if a, ok := fv.(string); ok {
+											prev, _ := mf["arguments"].(string)
+											mf["arguments"] = prev + a
+											continue
+										}
+									}
+									if s, ok := fv.(string); ok && s != "" {
+										mf[fk] = fv
+									}
+								}
+								continue
+							}
+							if s, ok := v.(string); ok && s != "" {
+								merged[k] = v
+							}
 						}
 					}
 				}
