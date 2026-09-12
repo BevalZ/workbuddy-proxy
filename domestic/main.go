@@ -546,9 +546,23 @@ func loadModelsFromUpstream() []pluginapi.ModelInfo {
 			continue
 		}
 		seen[m.ID] = true
-		models = append(models, modelInfoFromSpec(m.ID, m.Name, m.MaxInputTok, m.MaxOutputTok))
+		// Models overlapping with the international plugin get a "-cn" suffix
+		// so each flavor owns a distinct model ID (no registration clash).
+		models = append(models, modelInfoFromSpec(disambiguateDomestic(m.ID), m.Name, m.MaxInputTok, m.MaxOutputTok))
 	}
 	return models
+}
+
+// disambiguateDomestic appends "-cn" to model IDs that the international
+// plugin also registers. Without this, CPA keeps the first registration and
+// requests for e.g. hy4-preview would route to the domestic upstream even
+// when the user intends the international one.
+func disambiguateDomestic(id string) string {
+	switch id {
+	case "deepseek-v4.1-flash", "glm-5.2", "glm-5.3", "hy3", "hy3-x", "hy4-preview", "hy4-preview-x", "kimi-k2.5", "kimi-k2.6", "minimax-m3":
+		return id + "-cn"
+	}
+	return id
 }
 
 // loadModelsFromProductJSON 从 WorkBuddy 安装目录读取模型清单（兜底，可能过时）。
@@ -575,20 +589,21 @@ func loadModelsFromProductJSON() ([]pluginapi.ModelInfo, error) {
 			continue
 		}
 		seen[m.ID] = true
+		disamb := disambiguateDomestic(m.ID)
 		maxOut := m.MaxOutputTok
 		if maxOut <= 0 {
 			maxOut = 8192
 		}
 		name := m.Name
 		if name == "" {
-			name = m.ID
+			name = disamb
 		}
 		models = append(models, pluginapi.ModelInfo{
-			ID:                         m.ID,
+			ID:                         disamb,
 			Object:                     "model",
 			OwnedBy:                    providerName,
 			DisplayName:                name,
-			Name:                       m.ID,
+			Name:                       disamb,
 			SupportedGenerationMethods: []string{"chat"},
 			ContextLength:              m.MaxInputTok,
 			MaxCompletionTokens:        maxOut,
@@ -608,14 +623,14 @@ func wbModelsFallback() []pluginapi.ModelInfo {
 		{"default", "Default", 200000, 24000},
 		{"deepseek-v4-pro", "Deepseek-V4-Pro", 1000000, 50000},
 		{"deepseek-v4-flash", "Deepseek-V4-Flash", 1000000, 50000},
-		{"deepseek-v4.1-flash", "Deepseek-V4.1-Flash", 1000000, 128000},
+		{"deepseek-v4.1-flash-cn", "Deepseek-V4.1-Flash", 1000000, 128000},
 		{"deepseek-v3-2-volc", "DeepSeek-V3.2", 96000, 32000},
 		{"minimax-m2.5", "MiniMax-M2.5", 200000, 48000},
-		{"minimax-m3", "MiniMax-M3", 512000, 128000},
+		{"minimax-m3-cn", "MiniMax-M3", 512000, 128000},
 		{"minimax-m2.7", "MiniMax-M2.7", 200000, 48000},
-		{"glm-5.3", "GLM-5.3", 1000000, 48000},
+		{"glm-5.3-cn", "GLM-5.3", 1000000, 48000},
 		{"glm-5.3-flash", "GLM-5.3-Flash", 1000000, 32000},
-		{"glm-5.2", "GLM-5.2", 1000000, 48000},
+		{"glm-5.2-cn", "GLM-5.2", 1000000, 48000},
 		{"glm-5.1", "GLM-5.1", 200000, 48000},
 		{"glm-5.0", "GLM-5.0", 200000, 48000},
 		{"glm-5.0-turbo", "GLM-5.0-Turbo", 200000, 48000},
@@ -625,13 +640,13 @@ func wbModelsFallback() []pluginapi.ModelInfo {
 		{"glm-4.6v", "GLM-4.6V", 128000, 32000},
 		{"kimi-k3-1", "Kimi-K3", 1000000, 32000},
 		{"kimi-k2.7", "Kimi-K2.7-Code", 256000, 32000},
-		{"kimi-k2.6", "Kimi-K2.6", 256000, 32000},
-		{"kimi-k2.5", "Kimi-K2.5", 164000, 32000},
+		{"kimi-k2.6-cn", "Kimi-K2.6", 256000, 32000},
+		{"kimi-k2.5-cn", "Kimi-K2.5", 164000, 32000},
 		{"kimi-k2-thinking", "Kimi-K2-Thinking", 164000, 32000},
-		{"hy3", "Hy3", 192000, 64000},
-		{"hy3-x", "Hy3", 192000, 64000},
-		{"hy4-preview", "Hy4 preview", 1000000, 64000},
-		{"hy4-preview-x", "Hy4 preview", 1000000, 64000},
+		{"hy3-cn", "Hy3", 192000, 64000},
+		{"hy3-x-cn", "Hy3", 192000, 64000},
+		{"hy4-preview-cn", "Hy4 preview", 1000000, 64000},
+		{"hy4-preview-x-cn", "Hy4 preview", 1000000, 64000},
 		{"hunyuan-chat", "Hunyuan-Turbos", 200000, 8192},
 	}
 	models := make([]pluginapi.ModelInfo, 0, len(specs))
